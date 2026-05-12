@@ -12,13 +12,20 @@
 #include <task.h>
 #include <semphr.h>
 
+#include "SEGGER_RTT.h"
+
 // ================== Pin Definitions ==================
 #define GREEN_LED_PIN 12
 #define RED_LED_PIN   10
 #define ERROR_LED_PIN 15
 
 // ================== Timing ==================
-#define ERROR_THRESHOLD_MS     50000  // Connection lost for more than 50 seconds triggers blinking
+#define ERROR_THRESHOLD_MS 50000
+
+#define TICK_TO_MS(t) ((t) * portTICK_PERIOD_MS)
+
+#define LOG(fmt, ...) \
+    SEGGER_RTT_printf(0, fmt "\n", ##__VA_ARGS__)
 
 // ================== micro-ROS Objects ==================
 rcl_allocator_t allocator;
@@ -33,9 +40,13 @@ bool entities_created = false;
 unsigned long disconnect_start_time = 0; 
 bool is_disconnect_timer_running = false;
 
+uint32_t last_loop_time = 0;
+
 // ================== Entities Management ==================
 
 bool create_entities() {
+    uint32_t t0 = xTaskGetTickCount();
+
     allocator = rcl_get_default_allocator();
     if (rclc_support_init(&support, 0, NULL, &allocator) != RCL_RET_OK) return false;
     if (rclc_node_init_default(&node, "pico_heartbeat_monitor", "", &support) != RCL_RET_OK) return false;
@@ -47,14 +58,26 @@ bool create_entities() {
     ) != RCL_RET_OK) return false;
 
     if (rclc_executor_init(&executor, &support.context, 1, &allocator) != RCL_RET_OK) return false;
-    
-    rclc_executor_add_subscription(&executor, &heartbeat_sub, &heartbeat_msg, 
-        [](const void *msgin){ Serial.println("Heartbeat OK"); }, ON_NEW_DATA);
+
+    rclc_executor_add_subscription(
+        &executor,
+        &heartbeat_sub,
+        &heartbeat_msg,
+        [](const void *msgin){
+            LOG("[HEARTBEAT] received");
+        },
+        ON_NEW_DATA
+    );
+
+    uint32_t t1 = xTaskGetTickCount();
+    LOG("[CREATE] entities time = %lu ms", TICK_TO_MS(t1 - t0));
 
     return true;
 }
 
 void destroy_entities() {
+    uint32_t t0 = xTaskGetTickCount();
+
     rmw_context_t * rmw_context = rcl_context_get_rmw_context(&support.context);
     (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
@@ -62,82 +85,137 @@ void destroy_entities() {
     rcl_subscription_fini(&heartbeat_sub, &node);
     rcl_node_fini(&node);
     rclc_support_fini(&support);
+
+    uint32_t t1 = xTaskGetTickCount();
+    LOG("[DESTROY] time = %lu ms", TICK_TO_MS(t1 - t0));
 }
 
 // ================== Setup ==================
 void setup() {
-    Serial.begin(115200);
+    SEGGER_RTT_Init();
+
+    // 非阻塞模式（避免影響 timing）
+    SEGGER_RTT_SetFlagsUpBuffer(0, SEGGER_RTT_MODE_NO_BLOCK_SKIP);
+
     set_microros_serial_transports(Serial);
 
     pinMode(GREEN_LED_PIN, OUTPUT);
     pinMode(RED_LED_PIN, OUTPUT);
     pinMode(ERROR_LED_PIN, OUTPUT);
 
-    // Initial boot state: Red light on, others off
     digitalWrite(GREEN_LED_PIN, LOW);
     digitalWrite(RED_LED_PIN, HIGH);
-    digitalWrite(ERROR_LED_PIN, HIGH); 
+    digitalWrite(ERROR_LED_PIN, HIGH);
+
+    LOG("[BOOT] system start");
 }
 
 // ================== Loop ==================
 void loop() {
-    // --- 1. Check Agent connection status ---
-    bool ping_success = (rmw_uros_ping_agent(100, 1) == RMW_RET_OK);
 
+    uint32_t loop_start = xTaskGetTickCount();
+
+    // ===============================
+    // 1. Ping Agent latency
+    // ===============================
+    uint32_t t_ping0 = xTaskGetTickCount();
+    bool ping_success = (rmw_uros_ping_agent(100, 1) == RMW_RET_OK);
+    uint32_t t_ping1 = xTaskGetTickCount();
+
+    // LOG("[PING] latency = %lu ms", TICK_TO_MS(t_ping1 - t_ping0));
+
+    // ===============================
+    // 2. Disconnect handling
+    // ===============================
     if (!ping_success) {
-        // If just started disconnecting, record time and clean up Entities
+
         if (!is_disconnect_timer_running) {
             disconnect_start_time = millis();
             is_disconnect_timer_running = true;
+
+            LOG("[STATE] disconnect detected");
+
             if (entities_created) {
                 destroy_entities();
                 entities_created = false;
             }
         }
 
-        // Determine if disconnected for more than 10 seconds
         if (millis() - disconnect_start_time > ERROR_THRESHOLD_MS) {
-            // Enter error blinking mode
-            Serial.println("FATAL ERROR: Agent offline > 10s");
+
+            LOG("[STATE] Startup delay module");
+
             digitalWrite(GREEN_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, LOW);
 
-            digitalWrite(ERROR_LED_PIN, LOW);   // On
+            digitalWrite(ERROR_LED_PIN, LOW);
             vTaskDelay(pdMS_TO_TICKS(1000));
-            digitalWrite(ERROR_LED_PIN, HIGH);  // Off
+            digitalWrite(ERROR_LED_PIN, HIGH);
             vTaskDelay(pdMS_TO_TICKS(1000));
+
         } else {
-            // Within 10 seconds of disconnection: keep red light on
+
             digitalWrite(GREEN_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, HIGH);
+            LOG("[STATE] Backup activation completed");
             vTaskDelay(pdMS_TO_TICKS(500));
+
         }
-        return; 
+
+        return;
     }
 
-    // --- 2. Connection recovery handling ---
+    // ===============================
+    // 3. Recovery
+    // ===============================
     if (is_disconnect_timer_running) {
         is_disconnect_timer_running = false;
-        Serial.println("Agent back online!");
-    }
-    
-    digitalWrite(RED_LED_PIN, LOW);    // Turn off red light
-    digitalWrite(GREEN_LED_PIN, HIGH); // Turn on green light
 
+        LOG("[STATE] agent back online");
+
+        // LOG("[RECOVERY] time = %lu ms", millis() - disconnect_start_time);
+    }
+
+    digitalWrite(RED_LED_PIN, LOW);
+    digitalWrite(GREEN_LED_PIN, HIGH);
+    LOG("[STATE] agent connected");
+
+    // ===============================
+    // 4. Create entities
+    // ===============================
     if (!entities_created) {
         if (create_entities()) {
             entities_created = true;
         } else {
+            // LOG("[ERROR] create_entities failed");
             destroy_entities();
             vTaskDelay(pdMS_TO_TICKS(500));
             return;
         }
     }
 
-    // --- 3. Normal operation ---
+    // ===============================
+    // 5. Executor latency
+    // ===============================
+    uint32_t t_exec0 = xTaskGetTickCount();
+
     if (rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10)) != RCL_RET_OK) {
+        // LOG("[ERROR] executor failed");
         entities_created = false;
     }
+
+    uint32_t t_exec1 = xTaskGetTickCount();
+
+    // LOG("[EXECUTOR] time = %lu ms", TICK_TO_MS(t_exec1 - t_exec0));
+
+    // ===============================
+    // 6. Loop period
+    // ===============================
+    uint32_t loop_end = xTaskGetTickCount();
+
+    // LOG("[LOOP] period = %lu ms", TICK_TO_MS(loop_end - last_loop_time));
+
+    last_loop_time = loop_end;
 
     vTaskDelay(pdMS_TO_TICKS(10));
 }
