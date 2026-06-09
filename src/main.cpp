@@ -11,14 +11,20 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <semphr.h>
+#include <Servo.h>
 
 // ================== Pin Definitions ==================
 #define GREEN_LED_PIN 12
 #define RED_LED_PIN   10
 #define ERROR_LED_PIN 15
+#define NORMAL_SERVO_PIN 6
+#define BACKUP_SERVO_PIN 2
 
 // ================== Timing ==================
 #define ERROR_THRESHOLD_MS     50000  // Connection lost for more than 50 seconds triggers blinking
+
+Servo normal_servo;
+Servo backup_servo;
 
 // ================== micro-ROS Objects ==================
 rcl_allocator_t allocator;
@@ -69,6 +75,10 @@ void setup() {
     Serial.begin(115200);
     set_microros_serial_transports(Serial);
 
+    // pico onboard LED
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
+
     pinMode(GREEN_LED_PIN, OUTPUT);
     pinMode(RED_LED_PIN, OUTPUT);
     pinMode(ERROR_LED_PIN, OUTPUT);
@@ -77,6 +87,15 @@ void setup() {
     digitalWrite(GREEN_LED_PIN, LOW);
     digitalWrite(RED_LED_PIN, HIGH);
     digitalWrite(ERROR_LED_PIN, HIGH); 
+
+    normal_servo.attach(NORMAL_SERVO_PIN);
+    backup_servo.attach(BACKUP_SERVO_PIN);
+
+    normal_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
+    backup_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
+    delay(2000);
+    normal_servo.writeMicroseconds(1500); // Servo stop 
+    backup_servo.writeMicroseconds(1500); // Servo stop 
 }
 
 // ================== Loop ==================
@@ -110,6 +129,8 @@ void loop() {
             // Within 10 seconds of disconnection: keep red light on
             digitalWrite(GREEN_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, HIGH);
+            normal_servo.writeMicroseconds(1500); // Servo stop 
+            backup_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
             vTaskDelay(pdMS_TO_TICKS(500));
         }
         return; 
@@ -123,6 +144,8 @@ void loop() {
     
     digitalWrite(RED_LED_PIN, LOW);    // Turn off red light
     digitalWrite(GREEN_LED_PIN, HIGH); // Turn on green light
+    backup_servo.writeMicroseconds(1500); // Servo stop 
+    normal_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
 
     if (!entities_created) {
         if (create_entities()) {
