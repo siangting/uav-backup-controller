@@ -15,13 +15,16 @@
 
 // ================== Pin Definitions ==================
 #define GREEN_LED_PIN 12
+#define YELLOW_LED_PIN 11
 #define RED_LED_PIN   10
 #define ERROR_LED_PIN 15
 #define NORMAL_SERVO_PIN 6
 #define BACKUP_SERVO_PIN 2
 
 // ================== Timing ==================
-#define ERROR_THRESHOLD_MS     50000  // Connection lost for more than 50 seconds triggers blinking
+#define INIT_WAIT_MS 50000  // Wait 50 seconds for system initialization before starting heartbeat monitoring
+#define INIT_SERVO_POSITION_MS 5000 // Time to move servos to initial position after startup
+#define ERROR_THRESHOLD_MS     10000  // Connection lost for more than 50 seconds triggers blinking
 
 Servo normal_servo;
 Servo backup_servo;
@@ -80,22 +83,25 @@ void setup() {
     digitalWrite(LED_BUILTIN, HIGH);
 
     pinMode(GREEN_LED_PIN, OUTPUT);
+    pinMode(YELLOW_LED_PIN, OUTPUT);
     pinMode(RED_LED_PIN, OUTPUT);
     pinMode(ERROR_LED_PIN, OUTPUT);
 
     // Initial boot state: Red light on, others off
     digitalWrite(GREEN_LED_PIN, LOW);
-    digitalWrite(RED_LED_PIN, HIGH);
+    digitalWrite(YELLOW_LED_PIN, HIGH);
+    digitalWrite(RED_LED_PIN, LOW);
     digitalWrite(ERROR_LED_PIN, HIGH); 
 
     normal_servo.attach(NORMAL_SERVO_PIN);
     backup_servo.attach(BACKUP_SERVO_PIN);
 
-    normal_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
-    backup_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
-    delay(2000);
-    normal_servo.writeMicroseconds(1500); // Servo stop 
-    backup_servo.writeMicroseconds(1500); // Servo stop 
+    normal_servo.writeMicroseconds(1166); // 1000us corresponds to full speed in one direction
+    backup_servo.writeMicroseconds(1166); // 1000us corresponds to full speed in one direction
+    delay(INIT_SERVO_POSITION_MS); // Allow servos to move to initial position
+    normal_servo.writeMicroseconds(1500); 
+    backup_servo.writeMicroseconds(1500);
+    delay(INIT_WAIT_MS); // 等待系統INIT完成
 }
 
 // ================== Loop ==================
@@ -119,7 +125,10 @@ void loop() {
             // Enter error blinking mode
             Serial.println("FATAL ERROR: Agent offline > 10s");
             digitalWrite(GREEN_LED_PIN, LOW);
+            digitalWrite(YELLOW_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, LOW);
+
+            backup_servo.writeMicroseconds(1500); // Servo stop 
 
             digitalWrite(ERROR_LED_PIN, LOW);   // On
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -128,6 +137,7 @@ void loop() {
         } else {
             // Within 10 seconds of disconnection: keep red light on
             digitalWrite(GREEN_LED_PIN, LOW);
+            digitalWrite(YELLOW_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, HIGH);
             normal_servo.writeMicroseconds(1500); // Servo stop 
             backup_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
@@ -143,6 +153,7 @@ void loop() {
     }
     
     digitalWrite(RED_LED_PIN, LOW);    // Turn off red light
+    digitalWrite(YELLOW_LED_PIN, LOW);
     digitalWrite(GREEN_LED_PIN, HIGH); // Turn on green light
     backup_servo.writeMicroseconds(1500); // Servo stop 
     normal_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
