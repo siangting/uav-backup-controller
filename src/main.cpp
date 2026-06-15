@@ -13,14 +13,23 @@
 #include <semphr.h>
 
 #include "SEGGER_RTT.h"
+#include <Servo.h>
 
 // ================== Pin Definitions ==================
 #define GREEN_LED_PIN 12
+#define YELLOW_LED_PIN 11
 #define RED_LED_PIN   10
 #define ERROR_LED_PIN 15
+#define NORMAL_SERVO_PIN 6
+#define BACKUP_SERVO_PIN 2
 
 // ================== Timing ==================
-#define ERROR_THRESHOLD_MS 50000
+#define INIT_WAIT_MS 50000  // Wait 50 seconds for system initialization before starting heartbeat monitoring
+#define INIT_SERVO_POSITION_MS 5000 // Time to move servos to initial position after startup
+#define ERROR_THRESHOLD_MS     10000  // Connection lost for more than 50 seconds triggers blinking
+
+Servo normal_servo;
+Servo backup_servo;
 
 #define TICK_TO_MS(t) ((t) * portTICK_PERIOD_MS)
 
@@ -99,13 +108,29 @@ void setup() {
 
     set_microros_serial_transports(Serial);
 
+    // pico onboard LED
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
+
     pinMode(GREEN_LED_PIN, OUTPUT);
+    pinMode(YELLOW_LED_PIN, OUTPUT);
     pinMode(RED_LED_PIN, OUTPUT);
     pinMode(ERROR_LED_PIN, OUTPUT);
 
     digitalWrite(GREEN_LED_PIN, LOW);
-    digitalWrite(RED_LED_PIN, HIGH);
+    digitalWrite(YELLOW_LED_PIN, HIGH);
+    digitalWrite(RED_LED_PIN, LOW);
     digitalWrite(ERROR_LED_PIN, HIGH);
+
+    normal_servo.attach(NORMAL_SERVO_PIN);
+    backup_servo.attach(BACKUP_SERVO_PIN);
+
+    normal_servo.writeMicroseconds(1166); // 1000us corresponds to full speed in one direction
+    backup_servo.writeMicroseconds(1166); // 1000us corresponds to full speed in one direction
+    delay(INIT_SERVO_POSITION_MS); // Allow servos to move to initial position
+    normal_servo.writeMicroseconds(1500); 
+    backup_servo.writeMicroseconds(1500);
+    delay(INIT_WAIT_MS); // 等待系統INIT完成
 
     LOG("[BOOT] system start");
 }
@@ -146,7 +171,10 @@ void loop() {
             LOG("[STATE] Startup delay module");
 
             digitalWrite(GREEN_LED_PIN, LOW);
+            digitalWrite(YELLOW_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, LOW);
+
+            backup_servo.writeMicroseconds(1500); // Servo stop 
 
             digitalWrite(ERROR_LED_PIN, LOW);
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -156,7 +184,10 @@ void loop() {
         } else {
 
             digitalWrite(GREEN_LED_PIN, LOW);
+            digitalWrite(YELLOW_LED_PIN, LOW);
             digitalWrite(RED_LED_PIN, HIGH);
+            normal_servo.writeMicroseconds(1500); // Servo stop 
+            backup_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
             LOG("[STATE] Backup activation completed");
             vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -177,8 +208,11 @@ void loop() {
     }
 
     digitalWrite(RED_LED_PIN, LOW);
+    digitalWrite(YELLOW_LED_PIN, LOW);
     digitalWrite(GREEN_LED_PIN, HIGH);
     LOG("[STATE] agent connected");
+    backup_servo.writeMicroseconds(1500); // Servo stop 
+    normal_servo.writeMicroseconds(1000); // 1000us corresponds to full speed in one direction
 
     // ===============================
     // 4. Create entities
