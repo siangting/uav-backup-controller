@@ -15,14 +15,14 @@
 
 // ================== Pin Definitions ==================
 #define GREEN_LED_PIN 12
-#define YELLOW_LED_PIN 11
+#define YELLOW_LED_PIN 9
 #define RED_LED_PIN   10
 #define ERROR_LED_PIN 15
 #define NORMAL_SERVO_PIN 6
 #define BACKUP_SERVO_PIN 2
 
 // ================== Timing ==================
-#define INIT_WAIT_MS 50000  // Wait 50 seconds for system initialization before starting heartbeat monitoring
+#define INIT_WAIT_MS 45000  // Wait 45 seconds for system initialization before starting heartbeat monitoring
 #define INIT_SERVO_POSITION_MS 5000 // Time to move servos to initial position after startup
 #define ERROR_THRESHOLD_MS     10000  // Connection lost for more than 50 seconds triggers blinking
 
