@@ -49,6 +49,7 @@ bool is_disconnect_timer_running = false;
 
 // Edge detection for AGENT_CONNECTED / AGENT_DISCONNECTED markers
 bool agent_was_connected = false;
+bool backup_activation_logged = false;
 
 // ================== Entities Management ==================
 bool create_entities() {
@@ -134,7 +135,7 @@ void setup() {
 // ================== Loop ==================
 void loop() {
 
-    bool ping_success = (rmw_uros_ping_agent(100, 1) == RMW_RET_OK);
+    bool ping_success = (rmw_uros_ping_agent(100, 1) == RMW_RET_OK);    // TODO: test different timeout and attempts to see their effect on the system's behavior
 
     // ===============================
     // Disconnect path
@@ -144,6 +145,7 @@ void loop() {
         if (!is_disconnect_timer_running) {
             disconnect_start_time = millis();
             is_disconnect_timer_running = true;
+            backup_activation_logged = false;
 
             // ---- [Profiling] Backup time 標記 (邊緣觸發，每次斷線印一次) ----
             // backup_time = pico_AGENT_DISCONNECTED_時間 - host_"Stopping processes"_時間
@@ -178,7 +180,10 @@ void loop() {
             digitalWrite(RED_LED_PIN, HIGH);
             normal_servo.writeMicroseconds(1500);
             backup_servo.writeMicroseconds(1000);
-            LOG("[EVT] Backup activation completed");
+            if (!backup_activation_logged) {
+                LOG("[EVT] Backup activation completed");
+                backup_activation_logged = true;
+            }
             vTaskDelay(pdMS_TO_TICKS(500));
         }
 
