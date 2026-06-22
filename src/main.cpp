@@ -17,7 +17,7 @@
 #define GREEN_LED_PIN 12
 #define YELLOW_LED_PIN 9
 #define RED_LED_PIN   10
-#define ERROR_LED_PIN 15
+#define ERROR_PIN 15
 #define NORMAL_SERVO_PIN 6
 #define BACKUP_SERVO_PIN 2
 
@@ -85,13 +85,13 @@ void setup() {
     pinMode(GREEN_LED_PIN, OUTPUT);
     pinMode(YELLOW_LED_PIN, OUTPUT);
     pinMode(RED_LED_PIN, OUTPUT);
-    pinMode(ERROR_LED_PIN, OUTPUT);
+    pinMode(ERROR_PIN, OUTPUT);
 
     // Initial boot state: Red light on, others off
     digitalWrite(GREEN_LED_PIN, LOW);
     digitalWrite(YELLOW_LED_PIN, HIGH);
     digitalWrite(RED_LED_PIN, LOW);
-    digitalWrite(ERROR_LED_PIN, HIGH); 
+    digitalWrite(ERROR_PIN, HIGH); 
 
     normal_servo.attach(NORMAL_SERVO_PIN);
     backup_servo.attach(BACKUP_SERVO_PIN);
@@ -130,9 +130,9 @@ void loop() {
 
             backup_servo.writeMicroseconds(1500); // Servo stop 
 
-            digitalWrite(ERROR_LED_PIN, LOW);   // On
+            digitalWrite(ERROR_PIN, LOW);   // On
             vTaskDelay(pdMS_TO_TICKS(1000));
-            digitalWrite(ERROR_LED_PIN, HIGH);  // Off
+            digitalWrite(ERROR_PIN, HIGH);  // Off
             vTaskDelay(pdMS_TO_TICKS(1000));
         } else {
             // Within 10 seconds of disconnection: keep red light on
